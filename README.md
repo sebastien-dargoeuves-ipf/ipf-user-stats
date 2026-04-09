@@ -30,7 +30,7 @@ Two scripts are available depending on the IP Fabric version you are targeting.
 
 By default the script reads from the live system journal. Pass `--journal-dir` to point it at a local journal directory instead.
 
-### Basic usage
+### Usage
 
 Copy/paste or SCP `user_stats_7.9+.py` onto the IP Fabric appliance (e.g. `~osadmin/`) and run:
 
@@ -46,6 +46,7 @@ python3 'user_stats_7.9+.py' --include-path
 ```
 
 > **Internal use only:** to read from a local journal directory, pass `--journal-dir`:
+>
 > ```bash
 > python3 'user_stats_7.9+.py' \
 >   --journal-dir /path/to/system-log/journal
