@@ -4,6 +4,8 @@ import csv
 import json
 import subprocess
 import sys
+import threading
+import time
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +33,8 @@ def extract_message_payload(journal_obj: dict) -> Optional[dict]:
         return msg
 
     if isinstance(msg, str):
+        if '"messageType"' not in msg:
+            return None
         try:
             parsed = json.loads(msg)
         except json.JSONDecodeError:
@@ -96,6 +100,8 @@ def build_journalctl_cmd(
 
     if until:
         cmd.extend(["--until", until])
+
+    cmd.append('--grep="messageType"\\s*:\\s*"request"')
 
     if journal_dir is not None:
         cmd.append(f"--directory={journal_dir}")
@@ -239,6 +245,27 @@ def main() -> None:
     total_user_entries = 0
     excluded_entries = 0
 
+    scan_start = time.monotonic()
+    spinner_chars = "|/-\\"
+    stop_spinner = threading.Event()
+
+    def spin():
+        i = 0
+        while not stop_spinner.is_set():
+            elapsed = time.monotonic() - scan_start
+            print(
+                f"\r  {spinner_chars[i % len(spinner_chars)]} Scanning journal... "
+                f"({elapsed:.0f}s)",
+                end="",
+                file=sys.stderr,
+                flush=True,
+            )
+            stop_spinner.wait(0.15)
+            i += 1
+
+    spinner = threading.Thread(target=spin, daemon=True)
+    spinner.start()
+
     try:
         for journal_obj in iter_journal_objects(cmd):
             total_journal_rows += 1
@@ -275,8 +302,18 @@ def main() -> None:
             per_user_first_request[user] = min(per_user_first_request.get(user, ts), ts)
             per_user_last_request[user] = max(per_user_last_request.get(user, ts), ts)
     except RuntimeError as e:
+        stop_spinner.set()
+        spinner.join()
         print(e, file=sys.stderr)
         sys.exit(2)
+
+    stop_spinner.set()
+    spinner.join()
+    elapsed = time.monotonic() - scan_start
+    print(
+        f"\r  Done in {elapsed:.1f}s — {total_journal_rows:,} rows matched" + " " * 20,
+        file=sys.stderr,
+    )
 
     idle_s = float(args.idle)
     out_path = Path(args.out)
@@ -361,7 +398,7 @@ def main() -> None:
     if resolved_journal_dir is not None:
         print(f" - directory: {resolved_journal_dir}")
     print(f" - command: {' '.join(cmd)}")
-    print(f"Journal rows scanned: {total_journal_rows}")
+    print(f"Journal rows matched (post-grep): {total_journal_rows}")
     print(f"Rows with JSON payload in MESSAGE: {parsed_payload_rows}")
     print(f"Users found: {len(per_user_calls)}")
     print(f"Total sessions: {total_sessions}")
